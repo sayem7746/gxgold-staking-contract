@@ -10,6 +10,16 @@ async function main() {
   await mockXAUT.waitForDeployment();
   console.log("MockXAUT deployed to:", await mockXAUT.getAddress());
 
+  // Mint XAUT tokens to the specified address
+  const mintAddress = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+  const mintAmount = ethers.parseEther("10000"); // Mint 10,000 XAUT
+  
+  console.log(`Minting ${ethers.formatEther(mintAmount)} XAUT to ${mintAddress}...`);
+  const mintTx = await mockXAUT.mint(mintAddress, mintAmount);
+  await mintTx.wait();
+  const balanceAfter = await mockXAUT.balanceOf(mintAddress);
+  console.log(`Minted successfully! Balance: ${ethers.formatEther(balanceAfter)} XAUT`);
+
   const XGoldStaking = await ethers.getContractFactory("XGoldStaking");
   const staking = await XGoldStaking.deploy(
     await mockXAUT.getAddress(),

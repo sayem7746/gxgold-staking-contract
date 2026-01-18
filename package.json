@@ -10,7 +10,10 @@
     "simulate": "hardhat run scripts/simulate.js",
     "deploy:local": "hardhat run scripts/deploy.js --network localhost",
     "setup:local": "hardhat run scripts/setupLocal.js --network localhost",
-    "quickstart": "hardhat run scripts/quickStart.js --network localhost"
+    "quickstart": "hardhat run scripts/quickStart.js --network localhost",
+    "mint:xaut": "hardhat run scripts/mintXAUT.js --network localhost",
+    "mint:to": "node scripts/mintWrapper.js",
+    "check:balance": "node scripts/checkBalanceWrapper.js"
   },
   "keywords": [],
   "author": "",
