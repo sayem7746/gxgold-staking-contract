@@ -12,7 +12,8 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
     IERC20 public immutable stakingToken;
     address public lpRewardAddress;
 
-    uint256 public constant APY = 240; // 240% APY
+    uint256 public constant MAX_APY = 240; // Maximum 240% APY
+    uint256 public apy = 240; // Current APY, configurable by owner
     uint256 public constant SECONDS_PER_YEAR = 365 days;
     uint256 public constant REWARD_PRECISION = 10000; // For precision in calculations
 
@@ -29,6 +30,7 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
     event Unstaked(address indexed user, uint256 amount);
     event RewardClaimed(address indexed user, uint256 reward);
     event LPRewardAddressUpdated(address indexed oldAddress, address indexed newAddress);
+    event APYUpdated(uint256 oldAPY, uint256 newAPY);
 
     constructor(address _stakingToken, address _lpRewardAddress) Ownable(msg.sender) {
         require(_stakingToken != address(0), "Invalid staking token address");
@@ -115,7 +117,7 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
             return 0;
         }
 
-        uint256 rewardRate = (APY * REWARD_PRECISION) / SECONDS_PER_YEAR;
+        uint256 rewardRate = (apy * REWARD_PRECISION) / SECONDS_PER_YEAR;
         uint256 reward = (userStake.amount * rewardRate * timeElapsed) / (REWARD_PRECISION * REWARD_PRECISION);
 
         return reward;
@@ -130,6 +132,14 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
         address oldAddress = lpRewardAddress;
         lpRewardAddress = _lpRewardAddress;
         emit LPRewardAddressUpdated(oldAddress, _lpRewardAddress);
+    }
+
+    function setAPY(uint256 _apy) external onlyOwner {
+        require(_apy > 0, "APY must be greater than 0");
+        require(_apy <= MAX_APY, "APY exceeds maximum");
+        uint256 oldAPY = apy;
+        apy = _apy;
+        emit APYUpdated(oldAPY, _apy);
     }
 
     function emergencyWithdraw() external onlyOwner {

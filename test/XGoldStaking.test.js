@@ -47,7 +47,7 @@ describe("XGoldStaking", function () {
     });
 
     it("Should set the correct APY", async function () {
-      expect(await stakingContract.APY()).to.equal(APY);
+      expect(await stakingContract.apy()).to.equal(APY);
     });
   });
 
