@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "install:all": "npm install && cd frontend && npm install && cd ..",
     "test": "hardhat test",
     "compile": "hardhat compile",
     "node": "hardhat node",
