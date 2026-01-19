@@ -10,7 +10,6 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable stakingToken;
-    address public lpRewardAddress;
 
     uint256 public constant MAX_APY = 240; // Maximum 240% APY
     uint256 public apy = 240; // Current APY, configurable by owner
@@ -25,23 +24,22 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
 
     mapping(address => StakeInfo) public stakes;
     uint256 public totalStaked;
+    uint256 public rewardPool;
 
     event Staked(address indexed user, uint256 amount);
     event Unstaked(address indexed user, uint256 amount);
     event RewardClaimed(address indexed user, uint256 reward);
-    event LPRewardAddressUpdated(address indexed oldAddress, address indexed newAddress);
+    event RewardsDeposited(address indexed depositor, uint256 amount);
+    event RewardsWithdrawn(address indexed owner, uint256 amount);
     event APYUpdated(uint256 oldAPY, uint256 newAPY);
 
-    constructor(address _stakingToken, address _lpRewardAddress) Ownable(msg.sender) {
+    constructor(address _stakingToken) Ownable(msg.sender) {
         require(_stakingToken != address(0), "Invalid staking token address");
-        require(_lpRewardAddress != address(0), "Invalid LP reward address");
         stakingToken = IERC20(_stakingToken);
-        lpRewardAddress = _lpRewardAddress;
     }
 
     function stake(uint256 amount) external nonReentrant {
         require(amount > 0, "Amount must be greater than 0");
-        require(lpRewardAddress != address(0), "LP reward address not set");
 
         StakeInfo storage userStake = stakes[msg.sender];
 
@@ -93,16 +91,13 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
     }
 
     function _claimReward(address user, uint256 reward) internal {
-        require(lpRewardAddress != address(0), "LP reward address not set");
-        require(
-            stakingToken.balanceOf(lpRewardAddress) >= reward,
-            "Insufficient LP balance for rewards"
-        );
+        require(rewardPool >= reward, "Insufficient reward pool");
 
         StakeInfo storage userStake = stakes[user];
         userStake.lastRewardClaimedAt = block.timestamp;
 
-        stakingToken.safeTransferFrom(lpRewardAddress, user, reward);
+        rewardPool -= reward;
+        stakingToken.safeTransfer(user, reward);
         emit RewardClaimed(user, reward);
     }
 
@@ -117,8 +112,9 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
             return 0;
         }
 
-        uint256 rewardRate = (apy * REWARD_PRECISION) / SECONDS_PER_YEAR;
-        uint256 reward = (userStake.amount * rewardRate * timeElapsed) / (REWARD_PRECISION * REWARD_PRECISION);
+        // reward = (amount * apy * timeElapsed) / (100 * SECONDS_PER_YEAR)
+        // Using 100 because APY is expressed as percentage (240 = 240%)
+        uint256 reward = (userStake.amount * apy * timeElapsed) / (100 * SECONDS_PER_YEAR);
 
         return reward;
     }
@@ -127,11 +123,18 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
         return stakes[user];
     }
 
-    function setLPRewardAddress(address _lpRewardAddress) external onlyOwner {
-        require(_lpRewardAddress != address(0), "Invalid LP reward address");
-        address oldAddress = lpRewardAddress;
-        lpRewardAddress = _lpRewardAddress;
-        emit LPRewardAddressUpdated(oldAddress, _lpRewardAddress);
+    function depositRewards(uint256 amount) external onlyOwner nonReentrant {
+        require(amount > 0, "Amount must be greater than 0");
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
+        rewardPool += amount;
+        emit RewardsDeposited(msg.sender, amount);
+    }
+
+    function withdrawRewards(uint256 amount) external onlyOwner nonReentrant {
+        require(amount <= rewardPool, "Amount exceeds reward pool");
+        rewardPool -= amount;
+        stakingToken.safeTransfer(owner(), amount);
+        emit RewardsWithdrawn(owner(), amount);
     }
 
     function setAPY(uint256 _apy) external onlyOwner {
@@ -144,6 +147,8 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
 
     function emergencyWithdraw() external onlyOwner {
         uint256 balance = stakingToken.balanceOf(address(this));
+        rewardPool = 0;
+        totalStaked = 0;
         stakingToken.safeTransfer(owner(), balance);
     }
 }

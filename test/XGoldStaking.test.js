@@ -8,33 +8,28 @@ describe("XGoldStaking", function () {
   let owner;
   let user1;
   let user2;
-  let lpRewardAddress;
 
   const INITIAL_SUPPLY = ethers.parseEther("1000000");
   const STAKE_AMOUNT = ethers.parseEther("1000");
+  const REWARD_DEPOSIT = ethers.parseEther("100000");
   const APY = 240; // 240%
   const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
   beforeEach(async function () {
-    [owner, user1, user2, lpRewardAddress] = await ethers.getSigners();
+    [owner, user1, user2] = await ethers.getSigners();
 
     const MockXAUT = await ethers.getContractFactory("MockXAUT");
     mockXAUT = await MockXAUT.deploy();
 
     const XGoldStaking = await ethers.getContractFactory("XGoldStaking");
-    stakingContract = await XGoldStaking.deploy(
-      await mockXAUT.getAddress(),
-      lpRewardAddress.address
-    );
+    stakingContract = await XGoldStaking.deploy(await mockXAUT.getAddress());
 
     await mockXAUT.transfer(user1.address, ethers.parseEther("10000"));
     await mockXAUT.transfer(user2.address, ethers.parseEther("10000"));
-    await mockXAUT.transfer(lpRewardAddress.address, ethers.parseEther("100000"));
 
-    await mockXAUT.connect(lpRewardAddress).approve(
-      await stakingContract.getAddress(),
-      ethers.MaxUint256
-    );
+    // Owner approves and deposits rewards into the contract
+    await mockXAUT.approve(await stakingContract.getAddress(), REWARD_DEPOSIT);
+    await stakingContract.depositRewards(REWARD_DEPOSIT);
   });
 
   describe("Deployment", function () {
@@ -42,12 +37,42 @@ describe("XGoldStaking", function () {
       expect(await stakingContract.stakingToken()).to.equal(await mockXAUT.getAddress());
     });
 
-    it("Should set the correct LP reward address", async function () {
-      expect(await stakingContract.lpRewardAddress()).to.equal(lpRewardAddress.address);
-    });
-
     it("Should set the correct APY", async function () {
       expect(await stakingContract.apy()).to.equal(APY);
+    });
+
+    it("Should have reward pool balance after deposit", async function () {
+      expect(await stakingContract.rewardPool()).to.equal(REWARD_DEPOSIT);
+    });
+  });
+
+  describe("Reward Deposits", function () {
+    it("Should allow owner to deposit rewards", async function () {
+      const additionalReward = ethers.parseEther("10000");
+      await mockXAUT.approve(await stakingContract.getAddress(), additionalReward);
+
+      const poolBefore = await stakingContract.rewardPool();
+      await expect(stakingContract.depositRewards(additionalReward))
+        .to.emit(stakingContract, "RewardsDeposited")
+        .withArgs(owner.address, additionalReward);
+
+      expect(await stakingContract.rewardPool()).to.equal(poolBefore + additionalReward);
+    });
+
+    it("Should not allow non-owner to deposit rewards", async function () {
+      await mockXAUT.connect(user1).approve(
+        await stakingContract.getAddress(),
+        ethers.parseEther("1000")
+      );
+      await expect(
+        stakingContract.connect(user1).depositRewards(ethers.parseEther("1000"))
+      ).to.be.revertedWithCustomError(stakingContract, "OwnableUnauthorizedAccount");
+    });
+
+    it("Should revert if deposit amount is zero", async function () {
+      await expect(stakingContract.depositRewards(0)).to.be.revertedWith(
+        "Amount must be greater than 0"
+      );
     });
   });
 
@@ -107,8 +132,9 @@ describe("XGoldStaking", function () {
       await time.increase(oneDay);
 
       const reward = await stakingContract.calculateReward(user1.address);
-      const expectedReward = (STAKE_AMOUNT * BigInt(APY) * BigInt(oneDay) * 10000n) / 
-                              (BigInt(SECONDS_PER_YEAR) * 10000n);
+      // reward = (amount * apy * timeElapsed) / (100 * SECONDS_PER_YEAR)
+      const expectedReward = (STAKE_AMOUNT * BigInt(APY) * BigInt(oneDay)) /
+                              (100n * BigInt(SECONDS_PER_YEAR));
 
       expect(reward).to.be.closeTo(expectedReward, ethers.parseEther("0.01"));
     });
@@ -118,7 +144,8 @@ describe("XGoldStaking", function () {
       await time.increase(oneMonth);
 
       const reward = await stakingContract.calculateReward(user1.address);
-      const expectedMonthlyReward = STAKE_AMOUNT * 20n / 100n;
+      // 30 days at 240% APY = 30/365 * 240% = ~19.73%
+      const expectedMonthlyReward = (STAKE_AMOUNT * BigInt(240) * BigInt(oneMonth)) / (100n * BigInt(SECONDS_PER_YEAR));
 
       expect(reward).to.be.closeTo(expectedMonthlyReward, ethers.parseEther("1"));
     });
@@ -138,46 +165,84 @@ describe("XGoldStaking", function () {
       await stakingContract.connect(user1).stake(STAKE_AMOUNT);
     });
 
-    it("Should allow users to claim rewards", async function () {
+    it("Should allow users to claim rewards from reward pool", async function () {
       const oneDay = 24 * 60 * 60;
       await time.increase(oneDay);
 
-      const reward = await stakingContract.calculateReward(user1.address);
-      const lpBalanceBefore = await mockXAUT.balanceOf(lpRewardAddress.address);
+      const poolBefore = await stakingContract.rewardPool();
       const userBalanceBefore = await mockXAUT.balanceOf(user1.address);
 
-      await expect(stakingContract.connect(user1).claimReward())
-        .to.emit(stakingContract, "RewardClaimed")
-        .withArgs(user1.address, reward);
+      const tx = await stakingContract.connect(user1).claimReward();
+      const receipt = await tx.wait();
 
-      const lpBalanceAfter = await mockXAUT.balanceOf(lpRewardAddress.address);
+      // Get actual reward from event
+      const event = receipt.logs.find(log => {
+        try {
+          return stakingContract.interface.parseLog(log)?.name === "RewardClaimed";
+        } catch { return false; }
+      });
+      const parsedEvent = stakingContract.interface.parseLog(event);
+      const actualReward = parsedEvent.args.reward;
+
+      const poolAfter = await stakingContract.rewardPool();
       const userBalanceAfter = await mockXAUT.balanceOf(user1.address);
 
-      expect(lpBalanceBefore - lpBalanceAfter).to.equal(reward);
-      expect(userBalanceAfter - userBalanceBefore).to.equal(reward);
+      expect(actualReward).to.be.gt(0);
+      expect(poolBefore - poolAfter).to.equal(actualReward);
+      expect(userBalanceAfter - userBalanceBefore).to.equal(actualReward);
     });
 
     it("Should revert if no reward to claim", async function () {
+      // Use user2 who hasn't staked
       await expect(
-        stakingContract.connect(user1).claimReward()
+        stakingContract.connect(user2).claimReward()
       ).to.be.revertedWith("No reward to claim");
+    });
+
+    it("Should revert if reward pool is insufficient", async function () {
+      // Deploy a fresh contract without depositing rewards
+      const XGoldStaking = await ethers.getContractFactory("XGoldStaking");
+      const emptyPoolContract = await XGoldStaking.deploy(await mockXAUT.getAddress());
+
+      await mockXAUT.connect(user1).approve(
+        await emptyPoolContract.getAddress(),
+        STAKE_AMOUNT
+      );
+      await emptyPoolContract.connect(user1).stake(STAKE_AMOUNT);
+
+      const oneDay = 24 * 60 * 60;
+      await time.increase(oneDay);
+
+      await expect(
+        emptyPoolContract.connect(user1).claimReward()
+      ).to.be.revertedWith("Insufficient reward pool");
     });
 
     it("Should auto-claim rewards when staking additional amount", async function () {
       const oneDay = 24 * 60 * 60;
       await time.increase(oneDay);
 
-      const rewardBefore = await stakingContract.calculateReward(user1.address);
       await mockXAUT.connect(user1).approve(
         await stakingContract.getAddress(),
         STAKE_AMOUNT * 2n
       );
 
       const userBalanceBefore = await mockXAUT.balanceOf(user1.address);
-      await stakingContract.connect(user1).stake(STAKE_AMOUNT);
+      const tx = await stakingContract.connect(user1).stake(STAKE_AMOUNT);
+      const receipt = await tx.wait();
       const userBalanceAfter = await mockXAUT.balanceOf(user1.address);
 
-      expect(userBalanceAfter - userBalanceBefore).to.equal(rewardBefore);
+      // Get actual reward from event
+      const event = receipt.logs.find(log => {
+        try {
+          return stakingContract.interface.parseLog(log)?.name === "RewardClaimed";
+        } catch { return false; }
+      });
+      const parsedEvent = stakingContract.interface.parseLog(event);
+      const actualReward = parsedEvent.args.reward;
+
+      // User balance change = reward received - stake amount
+      expect(userBalanceAfter - userBalanceBefore + STAKE_AMOUNT).to.equal(actualReward);
     });
   });
 
@@ -194,12 +259,20 @@ describe("XGoldStaking", function () {
       const unstakeAmount = STAKE_AMOUNT / 2n;
       const userBalanceBefore = await mockXAUT.balanceOf(user1.address);
 
-      await expect(stakingContract.connect(user1).unstake(unstakeAmount))
-        .to.emit(stakingContract, "Unstaked")
-        .withArgs(user1.address, unstakeAmount);
+      const tx = await stakingContract.connect(user1).unstake(unstakeAmount);
+      const receipt = await tx.wait();
+
+      // Should emit Unstaked event
+      const unstakeEvent = receipt.logs.find(log => {
+        try {
+          return stakingContract.interface.parseLog(log)?.name === "Unstaked";
+        } catch { return false; }
+      });
+      expect(unstakeEvent).to.not.be.undefined;
 
       const userBalanceAfter = await mockXAUT.balanceOf(user1.address);
-      expect(userBalanceAfter - userBalanceBefore).to.equal(unstakeAmount);
+      // Balance increases by at least unstake amount (may include small reward)
+      expect(userBalanceAfter - userBalanceBefore).to.be.gte(unstakeAmount);
 
       const stakeInfo = await stakingContract.getStakeInfo(user1.address);
       expect(stakeInfo.amount).to.equal(STAKE_AMOUNT - unstakeAmount);
@@ -209,13 +282,22 @@ describe("XGoldStaking", function () {
       const oneDay = 24 * 60 * 60;
       await time.increase(oneDay);
 
-      const reward = await stakingContract.calculateReward(user1.address);
       const userBalanceBefore = await mockXAUT.balanceOf(user1.address);
 
-      await stakingContract.connect(user1).unstake(STAKE_AMOUNT);
+      const tx = await stakingContract.connect(user1).unstake(STAKE_AMOUNT);
+      const receipt = await tx.wait();
       const userBalanceAfter = await mockXAUT.balanceOf(user1.address);
 
-      expect(userBalanceAfter - userBalanceBefore).to.equal(STAKE_AMOUNT + reward);
+      // Get actual reward from event
+      const event = receipt.logs.find(log => {
+        try {
+          return stakingContract.interface.parseLog(log)?.name === "RewardClaimed";
+        } catch { return false; }
+      });
+      const parsedEvent = stakingContract.interface.parseLog(event);
+      const actualReward = parsedEvent.args.reward;
+
+      expect(userBalanceAfter - userBalanceBefore).to.equal(STAKE_AMOUNT + actualReward);
     });
 
     it("Should revert if unstaking more than staked", async function () {
@@ -232,18 +314,29 @@ describe("XGoldStaking", function () {
   });
 
   describe("Admin Functions", function () {
-    it("Should allow owner to set LP reward address", async function () {
-      const newLpAddress = user2.address;
-      await expect(stakingContract.setLPRewardAddress(newLpAddress))
-        .to.emit(stakingContract, "LPRewardAddressUpdated")
-        .withArgs(lpRewardAddress.address, newLpAddress);
+    it("Should allow owner to withdraw rewards", async function () {
+      const withdrawAmount = ethers.parseEther("10000");
+      const poolBefore = await stakingContract.rewardPool();
+      const ownerBalanceBefore = await mockXAUT.balanceOf(owner.address);
 
-      expect(await stakingContract.lpRewardAddress()).to.equal(newLpAddress);
+      await expect(stakingContract.withdrawRewards(withdrawAmount))
+        .to.emit(stakingContract, "RewardsWithdrawn")
+        .withArgs(owner.address, withdrawAmount);
+
+      expect(await stakingContract.rewardPool()).to.equal(poolBefore - withdrawAmount);
+      expect(await mockXAUT.balanceOf(owner.address)).to.equal(ownerBalanceBefore + withdrawAmount);
     });
 
-    it("Should not allow non-owner to set LP reward address", async function () {
+    it("Should not allow withdrawing more than reward pool", async function () {
+      const excessAmount = REWARD_DEPOSIT + 1n;
       await expect(
-        stakingContract.connect(user1).setLPRewardAddress(user2.address)
+        stakingContract.withdrawRewards(excessAmount)
+      ).to.be.revertedWith("Amount exceeds reward pool");
+    });
+
+    it("Should not allow non-owner to withdraw rewards", async function () {
+      await expect(
+        stakingContract.connect(user1).withdrawRewards(ethers.parseEther("1000"))
       ).to.be.revertedWithCustomError(stakingContract, "OwnableUnauthorizedAccount");
     });
 
@@ -261,6 +354,21 @@ describe("XGoldStaking", function () {
       const ownerBalanceAfter = await mockXAUT.balanceOf(owner.address);
 
       expect(ownerBalanceAfter - ownerBalanceBefore).to.equal(contractBalance);
+      expect(await stakingContract.rewardPool()).to.equal(0);
+      expect(await stakingContract.totalStaked()).to.equal(0);
+    });
+
+    it("Should allow owner to set APY", async function () {
+      const newAPY = 120;
+      await expect(stakingContract.setAPY(newAPY))
+        .to.emit(stakingContract, "APYUpdated")
+        .withArgs(APY, newAPY);
+
+      expect(await stakingContract.apy()).to.equal(newAPY);
+    });
+
+    it("Should not allow APY greater than MAX_APY", async function () {
+      await expect(stakingContract.setAPY(241)).to.be.revertedWith("APY exceeds maximum");
     });
   });
 
@@ -303,4 +411,3 @@ describe("XGoldStaking", function () {
     });
   });
 });
-

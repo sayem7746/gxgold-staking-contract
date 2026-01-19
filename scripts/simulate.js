@@ -1,10 +1,10 @@
 const { ethers } = require("hardhat");
 
 async function main() {
-  const [owner, user, lpReward] = await ethers.getSigners();
+  const [owner, user] = await ethers.getSigners();
 
   console.log("Deploying contracts...");
-  
+
   const MockXAUT = await ethers.getContractFactory("MockXAUT");
   const mockXAUT = await MockXAUT.deploy();
   await mockXAUT.waitForDeployment();
@@ -13,7 +13,7 @@ async function main() {
   // Mint XAUT tokens to the specified address
   const mintAddress = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
   const mintAmount = ethers.parseEther("10000"); // Mint 10,000 XAUT
-  
+
   console.log(`Minting ${ethers.formatEther(mintAmount)} XAUT to ${mintAddress}...`);
   const mintTx = await mockXAUT.mint(mintAddress, mintAmount);
   await mintTx.wait();
@@ -21,20 +21,23 @@ async function main() {
   console.log(`Minted successfully! Balance: ${ethers.formatEther(balanceAfter)} XAUT`);
 
   const XGoldStaking = await ethers.getContractFactory("XGoldStaking");
-  const staking = await XGoldStaking.deploy(
-    await mockXAUT.getAddress(),
-    lpReward.address
-  );
+  const staking = await XGoldStaking.deploy(await mockXAUT.getAddress());
   await staking.waitForDeployment();
   console.log("XGoldStaking deployed to:", await staking.getAddress());
 
   const stakeAmount = ethers.parseEther("1000");
-  
+  const rewardDeposit = ethers.parseEther("100000");
+
+  // Fund user with tokens
   await mockXAUT.transfer(user.address, stakeAmount);
-  await mockXAUT.transfer(lpReward.address, ethers.parseEther("100000"));
-  
+
+  // Owner deposits rewards into the contract
+  await mockXAUT.approve(await staking.getAddress(), rewardDeposit);
+  await staking.depositRewards(rewardDeposit);
+  console.log(`\nOwner deposited ${ethers.formatEther(rewardDeposit)} XAUT into reward pool`);
+
+  // User approves and stakes
   await mockXAUT.connect(user).approve(await staking.getAddress(), stakeAmount);
-  await mockXAUT.connect(lpReward).approve(await staking.getAddress(), ethers.MaxUint256);
 
   console.log("\n=== Simulation: 1 Month Staking ===");
   console.log(`Initial stake: ${ethers.formatEther(stakeAmount)} XAUT`);
@@ -57,8 +60,14 @@ async function main() {
   console.log(`  Staked At: ${new Date(Number(stakeInfo.stakedAt) * 1000).toLocaleString()}`);
   console.log(`  Last Reward Claimed At: ${new Date(Number(stakeInfo.lastRewardClaimedAt) * 1000).toLocaleString()}`);
 
+  const rewardPoolBefore = await staking.rewardPool();
+  console.log(`\nReward Pool before claim: ${ethers.formatEther(rewardPoolBefore)} XAUT`);
+
   await staking.connect(user).claimReward();
-  console.log("\nReward claimed successfully");
+  console.log("Reward claimed successfully");
+
+  const rewardPoolAfter = await staking.rewardPool();
+  console.log(`Reward Pool after claim: ${ethers.formatEther(rewardPoolAfter)} XAUT`);
 
   const userBalance = await mockXAUT.balanceOf(user.address);
   console.log(`User balance after claim: ${ethers.formatEther(userBalance)} XAUT`);
@@ -70,4 +79,3 @@ main()
     console.error(error);
     process.exit(1);
   });
-
