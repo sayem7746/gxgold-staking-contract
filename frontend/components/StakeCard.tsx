@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useAccount } from "wagmi";
 import { useStake, useUnstake, useStakeInfo } from "@/hooks/useStaking";
 import { useTokenBalance, useTokenAllowance, useApprove } from "@/hooks/useToken";
-import { formatToken, parseToken } from "@/lib/utils";
+import { formatToken, parseToken, formatTokenRaw } from "@/lib/utils";
 
 type Tab = "stake" | "unstake";
 
@@ -62,9 +62,9 @@ export function StakeCard() {
 
   const handleMaxClick = () => {
     if (activeTab === "stake" && balance) {
-      setAmount(formatToken(balance, 18, 18));
+      setAmount(formatTokenRaw(balance));
     } else if (activeTab === "unstake" && stakeInfo) {
-      setAmount(formatToken((stakeInfo as { amount: bigint }).amount, 18, 18));
+      setAmount(formatTokenRaw((stakeInfo as { amount: bigint }).amount));
     }
   };
 

@@ -20,12 +20,19 @@ export function RewardsCard() {
     isSuccess: claimSuccess,
   } = useClaimReward();
 
-  // Animate reward counter
+  // Sync displayed reward with contract value
   useEffect(() => {
     if (pendingRewards !== undefined) {
       setDisplayedReward(pendingRewards);
     }
   }, [pendingRewards]);
+
+  // Reset to 0 when user has no stake (e.g., after full unstake)
+  useEffect(() => {
+    if (stakeInfo && (stakeInfo as { amount: bigint }).amount === BigInt(0)) {
+      setDisplayedReward(BigInt(0));
+    }
+  }, [stakeInfo]);
 
   // Simulate real-time reward accumulation
   useEffect(() => {
@@ -43,9 +50,10 @@ export function RewardsCard() {
     return () => clearInterval(interval);
   }, [stakeInfo, apy]);
 
-  // Refetch after successful claim
+  // Reset displayed reward and refetch after successful claim
   useEffect(() => {
     if (claimSuccess) {
+      setDisplayedReward(BigInt(0)); // Immediately reset to 0
       refetchRewards();
       refetchStakeInfo();
     }

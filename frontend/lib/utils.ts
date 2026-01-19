@@ -16,6 +16,11 @@ export function formatToken(
   });
 }
 
+export function formatTokenRaw(value: bigint | undefined, decimals: number = 18): string {
+  if (value === undefined) return "0";
+  return formatUnits(value, decimals);
+}
+
 export function parseToken(value: string, decimals: number = 18): bigint {
   if (!value || value === "") return BigInt(0);
   try {

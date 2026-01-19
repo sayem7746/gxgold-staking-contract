@@ -24,6 +24,9 @@ export function useTotalStaked() {
     address: stakingAddress,
     abi: STAKING_ABI,
     functionName: "totalStaked",
+    query: {
+      refetchInterval: 5000,
+    },
   });
 }
 
@@ -33,6 +36,9 @@ export function useRewardPool() {
     address: stakingAddress,
     abi: STAKING_ABI,
     functionName: "rewardPool",
+    query: {
+      refetchInterval: 5000,
+    },
   });
 }
 
@@ -45,6 +51,7 @@ export function useStakeInfo(address: `0x${string}` | undefined) {
     args: address ? [address] : undefined,
     query: {
       enabled: !!address,
+      refetchInterval: 5000,
     },
   });
 }
