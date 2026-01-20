@@ -9,6 +9,10 @@
     "node": "hardhat node",
     "simulate": "hardhat run scripts/simulate.js",
     "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:sepolia": "hardhat run scripts/deploySepolia.js --network sepolia",
+    "deploy:mainnet": "hardhat run scripts/deployMainnet.js --network mainnet",
+    "verify:sepolia": "hardhat verify --network sepolia",
+    "verify:mainnet": "hardhat verify --network mainnet",
     "setup:local": "hardhat run scripts/setupLocal.js --network localhost",
     "quickstart": "hardhat run scripts/quickStart.js --network localhost",
     "mint:xaut": "hardhat run scripts/mintXAUT.js --network localhost",
@@ -38,5 +42,8 @@
     "ts-node": "^10.9.2",
     "typechain": "^8.3.2",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3"
   }
 }
