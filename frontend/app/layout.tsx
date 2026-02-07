@@ -3,18 +3,18 @@ import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "XGold Staking",
-  description: "Stake your XAUT tokens and earn 240% APY rewards",
+  title: "GXGold Staking - Earn 240% APY",
+  description: "Stake your XAUT tokens and earn rewards with GXGold Staking Protocol",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-gradient-animated antialiased">
+    <html lang="en">
+      <body className="bg-gradient-animated min-h-screen">
         <Providers>{children}</Providers>
       </body>
     </html>
