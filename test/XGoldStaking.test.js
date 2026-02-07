@@ -834,7 +834,7 @@ describe("XGoldStaking", function () {
         if (await stakingContract.whitelist(user3.address)) {
           await stakingContract.removeFromWhitelist(user3.address);
         }
-        
+
         expect(await stakingContract.whitelist(user3.address)).to.be.false;
         expect(await stakingContract.whitelist(user1.address)).to.be.true; // Whitelisted in beforeEach
 
@@ -844,6 +844,231 @@ describe("XGoldStaking", function () {
         await stakingContract.removeFromWhitelist(user3.address);
         expect(await stakingContract.whitelist(user3.address)).to.be.false;
       });
+    });
+  });
+
+  describe("Graceful Unstake - Insufficient Reward Pool", function () {
+    let emptyPoolContract;
+    const oneDay = 24 * 60 * 60;
+
+    beforeEach(async function () {
+      // Deploy a fresh contract with NO reward pool
+      const XGoldStaking = await ethers.getContractFactory("XGoldStaking");
+      emptyPoolContract = await XGoldStaking.deploy(await mockXAUT.getAddress());
+
+      // Whitelist user1
+      await emptyPoolContract.addToWhitelist(user1.address);
+
+      // User1 stakes 1000 tokens
+      await mockXAUT.connect(user1).approve(
+        await emptyPoolContract.getAddress(),
+        STAKE_AMOUNT * 3n
+      );
+      await emptyPoolContract.connect(user1).stake(STAKE_AMOUNT);
+    });
+
+    it("Should allow full unstake with empty reward pool", async function () {
+      await time.increase(oneDay);
+
+      const pendingReward = await emptyPoolContract.calculateReward(user1.address);
+      expect(pendingReward).to.be.gt(0);
+      expect(await emptyPoolContract.rewardPool()).to.equal(0);
+
+      const userBalanceBefore = await mockXAUT.balanceOf(user1.address);
+      const tx = await emptyPoolContract.connect(user1).unstake(STAKE_AMOUNT);
+      const receipt = await tx.wait();
+      const userBalanceAfter = await mockXAUT.balanceOf(user1.address);
+
+      // User gets their full stake back
+      expect(userBalanceAfter - userBalanceBefore).to.equal(STAKE_AMOUNT);
+
+      // No RewardClaimed event emitted
+      const rewardEvents = receipt.logs
+        .map(log => { try { return emptyPoolContract.interface.parseLog(log); } catch { return null; } })
+        .filter(e => e && e.name === "RewardClaimed");
+      expect(rewardEvents.length).to.equal(0);
+
+      // Unclaimed reward is stored
+      const stakeInfo = await emptyPoolContract.getStakeInfo(user1.address);
+      expect(stakeInfo.unclaimedReward).to.be.gt(0);
+      expect(stakeInfo.amount).to.equal(0);
+    });
+
+    it("Should preserve reward on partial unstake with empty pool", async function () {
+      await time.increase(oneDay);
+
+      const pendingReward = await emptyPoolContract.calculateReward(user1.address);
+      expect(pendingReward).to.be.gt(0);
+
+      const halfStake = STAKE_AMOUNT / 2n;
+      const userBalanceBefore = await mockXAUT.balanceOf(user1.address);
+      await emptyPoolContract.connect(user1).unstake(halfStake);
+      const userBalanceAfter = await mockXAUT.balanceOf(user1.address);
+
+      // User gets only unstaked amount (no reward paid)
+      expect(userBalanceAfter - userBalanceBefore).to.equal(halfStake);
+
+      // Remaining stake and unclaimed are preserved
+      const stakeInfo = await emptyPoolContract.getStakeInfo(user1.address);
+      expect(stakeInfo.amount).to.equal(halfStake);
+      expect(stakeInfo.unclaimedReward).to.be.gt(0);
+
+      // calculateReward includes the stored unclaimed
+      const rewardAfter = await emptyPoolContract.calculateReward(user1.address);
+      expect(rewardAfter).to.be.gte(stakeInfo.unclaimedReward);
+    });
+
+    it("Should pay partial reward when pool is partially depleted", async function () {
+      await time.increase(oneDay);
+
+      const pendingReward = await emptyPoolContract.calculateReward(user1.address);
+      // Deposit less than what's owed
+      const smallDeposit = pendingReward / 2n;
+      await mockXAUT.approve(await emptyPoolContract.getAddress(), smallDeposit);
+      await emptyPoolContract.depositRewards(smallDeposit);
+
+      const userBalanceBefore = await mockXAUT.balanceOf(user1.address);
+      const tx = await emptyPoolContract.connect(user1).unstake(STAKE_AMOUNT);
+      const receipt = await tx.wait();
+      const userBalanceAfter = await mockXAUT.balanceOf(user1.address);
+
+      // RewardClaimed event with partial amount
+      const rewardEvents = receipt.logs
+        .map(log => { try { return emptyPoolContract.interface.parseLog(log); } catch { return null; } })
+        .filter(e => e && e.name === "RewardClaimed");
+      expect(rewardEvents.length).to.equal(1);
+      const claimedAmount = rewardEvents[0].args.reward;
+      expect(claimedAmount).to.be.closeTo(smallDeposit, ethers.parseEther("0.01"));
+
+      // User gets stake + partial reward
+      expect(userBalanceAfter - userBalanceBefore).to.be.closeTo(
+        STAKE_AMOUNT + smallDeposit,
+        ethers.parseEther("0.01")
+      );
+
+      // Remaining unclaimed stored
+      const stakeInfo = await emptyPoolContract.getStakeInfo(user1.address);
+      expect(stakeInfo.unclaimedReward).to.be.gt(0);
+
+      // Reward pool should be drained
+      expect(await emptyPoolContract.rewardPool()).to.equal(0);
+    });
+
+    it("Should allow claiming unclaimed rewards after pool is replenished", async function () {
+      await time.increase(oneDay);
+
+      // Partial unstake with empty pool — stores unclaimed
+      const halfStake = STAKE_AMOUNT / 2n;
+      await emptyPoolContract.connect(user1).unstake(halfStake);
+
+      const stakeInfoBefore = await emptyPoolContract.getStakeInfo(user1.address);
+      const storedUnclaimed = stakeInfoBefore.unclaimedReward;
+      expect(storedUnclaimed).to.be.gt(0);
+
+      // Owner replenishes the pool
+      const deposit = ethers.parseEther("10000");
+      await mockXAUT.approve(await emptyPoolContract.getAddress(), deposit);
+      await emptyPoolContract.depositRewards(deposit);
+
+      // User claims reward (includes stored unclaimed + new time-based)
+      const userBalanceBefore = await mockXAUT.balanceOf(user1.address);
+      const tx = await emptyPoolContract.connect(user1).claimReward();
+      const receipt = await tx.wait();
+      const userBalanceAfter = await mockXAUT.balanceOf(user1.address);
+
+      const rewardEvent = receipt.logs
+        .map(log => { try { return emptyPoolContract.interface.parseLog(log); } catch { return null; } })
+        .filter(e => e && e.name === "RewardClaimed");
+      const claimedReward = rewardEvent[0].args.reward;
+
+      // Claimed reward should be >= stored unclaimed (plus any new time reward)
+      expect(claimedReward).to.be.gte(storedUnclaimed);
+      expect(userBalanceAfter - userBalanceBefore).to.equal(claimedReward);
+
+      // Unclaimed should be reset
+      const stakeInfoAfter = await emptyPoolContract.getStakeInfo(user1.address);
+      expect(stakeInfoAfter.unclaimedReward).to.equal(0);
+    });
+
+    it("Should allow full unstake with empty pool then claim unclaimed later", async function () {
+      await time.increase(oneDay);
+
+      // Full unstake with empty pool
+      await emptyPoolContract.connect(user1).unstake(STAKE_AMOUNT);
+
+      // Stake entry still exists with unclaimed
+      const stakeInfo = await emptyPoolContract.getStakeInfo(user1.address);
+      expect(stakeInfo.amount).to.equal(0);
+      expect(stakeInfo.unclaimedReward).to.be.gt(0);
+      const storedUnclaimed = stakeInfo.unclaimedReward;
+
+      // Owner replenishes pool
+      const deposit = ethers.parseEther("10000");
+      await mockXAUT.approve(await emptyPoolContract.getAddress(), deposit);
+      await emptyPoolContract.depositRewards(deposit);
+
+      // User claims the stored unclaimed
+      const userBalanceBefore = await mockXAUT.balanceOf(user1.address);
+      await emptyPoolContract.connect(user1).claimReward();
+      const userBalanceAfter = await mockXAUT.balanceOf(user1.address);
+
+      expect(userBalanceAfter - userBalanceBefore).to.equal(storedUnclaimed);
+
+      // Stake entry is now fully cleaned up
+      const stakeInfoAfter = await emptyPoolContract.getStakeInfo(user1.address);
+      expect(stakeInfoAfter.amount).to.equal(0);
+      expect(stakeInfoAfter.unclaimedReward).to.equal(0);
+    });
+
+    it("Should preserve unclaimed rewards when re-staking with insufficient pool", async function () {
+      await time.increase(oneDay);
+
+      const pendingReward = await emptyPoolContract.calculateReward(user1.address);
+      expect(pendingReward).to.be.gt(0);
+
+      // Re-stake (should not revert despite empty pool)
+      await emptyPoolContract.connect(user1).stake(STAKE_AMOUNT);
+
+      // Unclaimed reward stored, total staked doubled
+      const stakeInfo = await emptyPoolContract.getStakeInfo(user1.address);
+      expect(stakeInfo.amount).to.equal(STAKE_AMOUNT * 2n);
+      expect(stakeInfo.unclaimedReward).to.be.gt(0);
+      expect(stakeInfo.unclaimedReward).to.be.closeTo(pendingReward, ethers.parseEther("0.01"));
+    });
+
+    it("Should still pay full rewards when pool is sufficient (regression)", async function () {
+      // Deposit plenty of rewards
+      const deposit = ethers.parseEther("100000");
+      await mockXAUT.approve(await emptyPoolContract.getAddress(), deposit);
+      await emptyPoolContract.depositRewards(deposit);
+
+      await time.increase(oneDay);
+
+      const pendingReward = await emptyPoolContract.calculateReward(user1.address);
+      const userBalanceBefore = await mockXAUT.balanceOf(user1.address);
+
+      const tx = await emptyPoolContract.connect(user1).unstake(STAKE_AMOUNT);
+      const receipt = await tx.wait();
+      const userBalanceAfter = await mockXAUT.balanceOf(user1.address);
+
+      // RewardClaimed event with full amount
+      const rewardEvents = receipt.logs
+        .map(log => { try { return emptyPoolContract.interface.parseLog(log); } catch { return null; } })
+        .filter(e => e && e.name === "RewardClaimed");
+      expect(rewardEvents.length).to.equal(1);
+
+      const claimedReward = rewardEvents[0].args.reward;
+      expect(claimedReward).to.be.closeTo(pendingReward, ethers.parseEther("0.01"));
+
+      // User gets stake + full reward
+      expect(userBalanceAfter - userBalanceBefore).to.be.closeTo(
+        STAKE_AMOUNT + pendingReward,
+        ethers.parseEther("0.01")
+      );
+
+      // No unclaimed left
+      const stakeInfo = await emptyPoolContract.getStakeInfo(user1.address);
+      expect(stakeInfo.unclaimedReward).to.equal(0);
     });
   });
 });
