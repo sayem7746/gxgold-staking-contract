@@ -1,0 +1,41 @@
+module.exports = {
+  apps: [
+    {
+      name: 'staking-frontend',
+      script: 'node_modules/.bin/next',
+      args: 'start -p 8080',
+      cwd: '/home/gxgold/staking/frontend',
+      instances: 1,
+      exec_mode: 'fork',
+      env: {
+        NODE_ENV: 'production',
+        PORT: 8080,
+      },
+      error_file: '/home/gxgold/staking/frontend/logs/pm2-error.log',
+      out_file: '/home/gxgold/staking/frontend/logs/pm2-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_memory_restart: '1G',
+      watch: false,
+    },
+    {
+      name: 'hardhat-node',
+      script: 'node_modules/.bin/hardhat',
+      args: 'node',
+      cwd: '/home/gxgold/staking',
+      instances: 1,
+      exec_mode: 'fork',
+      env: {
+        NODE_ENV: 'production',
+      },
+      error_file: '/home/gxgold/staking/frontend/logs/hardhat-error.log',
+      out_file: '/home/gxgold/staking/frontend/logs/hardhat-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_memory_restart: '2G',
+      watch: false,
+    },
+  ],
+};
