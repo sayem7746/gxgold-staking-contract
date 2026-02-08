@@ -20,6 +20,7 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
         uint256 amount;
         uint256 stakedAt;
         uint256 lastRewardClaimedAt;
+        uint256 unclaimedReward;
     }
 
     mapping(address => StakeInfo) public stakes;
@@ -54,7 +55,17 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
         if (userStake.amount > 0) {
             uint256 pendingReward = calculateReward(msg.sender);
             if (pendingReward > 0) {
-                _claimReward(msg.sender, pendingReward);
+                if (rewardPool >= pendingReward) {
+                    _claimReward(msg.sender, pendingReward);
+                } else {
+                    uint256 claimable = rewardPool;
+                    if (claimable > 0) {
+                        rewardPool -= claimable;
+                        stakingToken.safeTransfer(msg.sender, claimable);
+                        emit RewardClaimed(msg.sender, claimable);
+                    }
+                    userStake.unclaimedReward = pendingReward - claimable;
+                }
             }
             userStake.lastRewardClaimedAt = block.timestamp;
         } else {
@@ -76,14 +87,26 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
 
         uint256 pendingReward = calculateReward(msg.sender);
         if (pendingReward > 0) {
-            _claimReward(msg.sender, pendingReward);
+            uint256 claimableReward = pendingReward > rewardPool ? rewardPool : pendingReward;
+            uint256 unpaidReward = pendingReward - claimableReward;
+
+            if (claimableReward > 0) {
+                rewardPool -= claimableReward;
+                stakingToken.safeTransfer(msg.sender, claimableReward);
+                emit RewardClaimed(msg.sender, claimableReward);
+            }
+
+            userStake.unclaimedReward = unpaidReward;
+            userStake.lastRewardClaimedAt = block.timestamp;
         }
 
         userStake.amount -= amount;
         totalStaked -= amount;
 
         if (userStake.amount == 0) {
-            delete stakes[msg.sender];
+            if (userStake.unclaimedReward == 0) {
+                delete stakes[msg.sender];
+            }
         } else {
             userStake.lastRewardClaimedAt = block.timestamp;
         }
@@ -103,28 +126,32 @@ contract XGoldStaking is Ownable, ReentrancyGuard {
 
         StakeInfo storage userStake = stakes[user];
         userStake.lastRewardClaimedAt = block.timestamp;
+        userStake.unclaimedReward = 0;
 
         rewardPool -= reward;
         stakingToken.safeTransfer(user, reward);
         emit RewardClaimed(user, reward);
+
+        if (userStake.amount == 0) {
+            delete stakes[user];
+        }
     }
 
     function calculateReward(address user) public view returns (uint256) {
         StakeInfo memory userStake = stakes[user];
         if (userStake.amount == 0) {
-            return 0;
+            return userStake.unclaimedReward;
         }
 
         uint256 timeElapsed = block.timestamp - userStake.lastRewardClaimedAt;
-        if (timeElapsed == 0) {
-            return 0;
+        uint256 reward = 0;
+        if (timeElapsed > 0) {
+            // reward = (amount * apy * timeElapsed) / (100 * SECONDS_PER_YEAR)
+            // Using 100 because APY is expressed as percentage (240 = 240%)
+            reward = (userStake.amount * apy * timeElapsed) / (100 * SECONDS_PER_YEAR);
         }
 
-        // reward = (amount * apy * timeElapsed) / (100 * SECONDS_PER_YEAR)
-        // Using 100 because APY is expressed as percentage (240 = 240%)
-        uint256 reward = (userStake.amount * apy * timeElapsed) / (100 * SECONDS_PER_YEAR);
-
-        return reward;
+        return reward + userStake.unclaimedReward;
     }
 
     function getStakeInfo(address user) external view returns (StakeInfo memory) {
