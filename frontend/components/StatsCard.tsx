@@ -2,7 +2,7 @@
 
 import { useAccount } from "wagmi";
 import { useAPY, useTotalStaked, useRewardPool, useStakeInfo } from "@/hooks/useStaking";
-import { useTokenBalance } from "@/hooks/useToken";
+import { useTokenBalance, useTokenDecimals } from "@/hooks/useToken";
 import { formatToken, formatAPY } from "@/lib/utils";
 
 interface StatItemProps {
@@ -29,6 +29,8 @@ export function StatsCard() {
   const { data: rewardPool } = useRewardPool();
   const { data: stakeInfo } = useStakeInfo(address);
   const { data: balance } = useTokenBalance(address);
+  const { data: decimals } = useTokenDecimals();
+  const tokenDecimals = decimals ?? 18; // Default to 18 if not loaded yet
 
   const userStaked = stakeInfo ? (stakeInfo as { amount: bigint }).amount : BigInt(0);
 
@@ -41,13 +43,13 @@ export function StatsCard() {
 
         <StatItem
           label="Total Value Locked"
-          value={`${formatToken(totalStaked)} XAUT`}
+          value={`${formatToken(totalStaked, tokenDecimals, 6)} XAUT`}
           subValue="All stakers combined"
         />
 
         <StatItem
           label="Reward Pool"
-          value={`${formatToken(rewardPool)} XAUT`}
+          value={`${formatToken(rewardPool, tokenDecimals, 6)} XAUT`}
           subValue="Available for distribution"
         />
 
@@ -58,13 +60,13 @@ export function StatsCard() {
 
             <StatItem
               label="Your Staked Amount"
-              value={`${formatToken(userStaked)} XAUT`}
+              value={`${formatToken(userStaked, tokenDecimals, 6)} XAUT`}
               highlight={userStaked > BigInt(0)}
             />
 
             <StatItem
               label="Wallet Balance"
-              value={`${formatToken(balance)} XAUT`}
+              value={`${formatToken(balance, tokenDecimals, 6)} XAUT`}
               subValue="Available to stake"
             />
 

@@ -2,27 +2,56 @@
 
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { useChainId } from "wagmi";
+import { Address } from "viem";
 import { ERC20_ABI, TOKEN_ADDRESSES } from "@/lib/contracts";
 import { useStakingAddress } from "./useStaking";
 import { maxUint256 } from "viem";
 
-export function useTokenAddress() {
+export function useTokenAddress(): Address | undefined {
   const chainId = useChainId();
-  return TOKEN_ADDRESSES[chainId] || TOKEN_ADDRESSES[31337];
+  const tokenAddress = TOKEN_ADDRESSES[chainId];
+  
+  // Log for debugging
+  if (typeof window !== 'undefined') {
+    console.log('Current chainId:', chainId);
+    console.log('Token address for chain:', tokenAddress);
+    console.log('Available token addresses:', TOKEN_ADDRESSES);
+  }
+  
+  if (!tokenAddress || tokenAddress === "0x0000000000000000000000000000000000000000") {
+    console.error(`No valid token address configured for chainId ${chainId}`);
+    return undefined;
+  }
+  
+  return tokenAddress as Address;
 }
 
 export function useTokenBalance(address: `0x${string}` | undefined) {
   const tokenAddress = useTokenAddress();
-  return useReadContract({
+  
+  const result = useReadContract({
     address: tokenAddress,
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
     query: {
-      enabled: !!address,
+      enabled: !!address && !!tokenAddress,
       refetchInterval: 10000,
     },
   });
+  
+  // Log for debugging
+  if (typeof window !== 'undefined' && address) {
+    console.log('Token balance query:', {
+      tokenAddress,
+      userAddress: address,
+      balance: result.data,
+      error: result.error,
+      isLoading: result.isLoading,
+    });
+  }
+  
+  return result;
 }
 
 export function useTokenDecimals() {
@@ -31,6 +60,9 @@ export function useTokenDecimals() {
     address: tokenAddress,
     abi: ERC20_ABI,
     functionName: "decimals",
+    query: {
+      enabled: !!tokenAddress,
+    },
   });
 }
 
@@ -40,6 +72,9 @@ export function useTokenSymbol() {
     address: tokenAddress,
     abi: ERC20_ABI,
     functionName: "symbol",
+    query: {
+      enabled: !!tokenAddress,
+    },
   });
 }
 
@@ -51,9 +86,9 @@ export function useTokenAllowance(owner: `0x${string}` | undefined) {
     address: tokenAddress,
     abi: ERC20_ABI,
     functionName: "allowance",
-    args: owner ? [owner, stakingAddress] : undefined,
+    args: owner && stakingAddress ? [owner, stakingAddress] : undefined,
     query: {
-      enabled: !!owner,
+      enabled: !!owner && !!tokenAddress && !!stakingAddress,
     },
   });
 }
@@ -68,6 +103,10 @@ export function useApprove() {
   });
 
   const approve = (amount?: bigint) => {
+    if (!tokenAddress || !stakingAddress) {
+      console.error('Token address or staking address not configured');
+      return;
+    }
     writeContract({
       address: tokenAddress,
       abi: ERC20_ABI,

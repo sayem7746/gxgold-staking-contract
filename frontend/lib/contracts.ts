@@ -26,6 +26,15 @@ export const TOKEN_ADDRESSES: Record<number, Address> = {
     "0x0000000000000000000000000000000000000000",
 };
 
+// Debug: Log environment variables at build time
+if (typeof window === 'undefined') {
+  console.log('Token addresses from env:', {
+    localhost: process.env.NEXT_PUBLIC_TOKEN_ADDRESS_LOCALHOST,
+    sepolia: process.env.NEXT_PUBLIC_TOKEN_ADDRESS_SEPOLIA,
+    mainnet: process.env.NEXT_PUBLIC_TOKEN_ADDRESS_MAINNET,
+  });
+}
+
 // XGoldStaking ABI
 export const STAKING_ABI = [
   {

@@ -3,16 +3,21 @@ import { formatUnits, parseUnits } from "viem";
 export function formatToken(
   value: bigint | undefined,
   decimals: number = 18,
-  displayDecimals: number = 4
+  displayDecimals: number = 6
 ): string {
-  if (value === undefined) return "0";
+  if (value === undefined || value === BigInt(0)) return "0";
   const formatted = formatUnits(value, decimals);
   const num = parseFloat(formatted);
   if (num === 0) return "0";
-  if (num < 0.0001) return "< 0.0001";
+  
+  // For very small amounts, show more precision to ensure visibility
+  // Use at least the number of decimals the token supports, up to a reasonable limit
+  const minPrecision = Math.min(decimals, 8); // Cap at 8 decimals for display
+  const actualDisplayDecimals = Math.max(displayDecimals, minPrecision);
+  
   return num.toLocaleString(undefined, {
     minimumFractionDigits: 0,
-    maximumFractionDigits: displayDecimals,
+    maximumFractionDigits: actualDisplayDecimals,
   });
 }
 

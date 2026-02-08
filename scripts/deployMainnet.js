@@ -3,8 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 
-// Real XAUT token address on Ethereum Mainnet
-const XAUT_MAINNET_ADDRESS = "0x68749665ff8d2d112fa859aa293f07a622782f38";
+// Real XAUT token address on Ethereum Mainnet (checksummed)
+const XAUT_MAINNET_ADDRESS = "0x68749665FF8D2d112Fa859AA293F07A622782F38";
 
 function prompt(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });

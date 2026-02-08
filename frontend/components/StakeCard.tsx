@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useAccount } from "wagmi";
 import { useStake, useUnstake, useStakeInfo } from "@/hooks/useStaking";
-import { useTokenBalance, useTokenAllowance, useApprove } from "@/hooks/useToken";
+import { useTokenBalance, useTokenAllowance, useApprove, useTokenDecimals } from "@/hooks/useToken";
 import { formatToken, parseToken, formatTokenRaw } from "@/lib/utils";
 
 type Tab = "stake" | "unstake";
@@ -16,6 +16,8 @@ export function StakeCard() {
   const { data: balance, refetch: refetchBalance } = useTokenBalance(address);
   const { data: allowance, refetch: refetchAllowance } = useTokenAllowance(address);
   const { data: stakeInfo, refetch: refetchStakeInfo } = useStakeInfo(address);
+  const { data: decimals } = useTokenDecimals();
+  const tokenDecimals = decimals ?? 18; // Default to 18 if not loaded yet
 
   const {
     approve,
@@ -38,7 +40,7 @@ export function StakeCard() {
     isSuccess: unstakeSuccess,
   } = useUnstake();
 
-  const parsedAmount = parseToken(amount);
+  const parsedAmount = parseToken(amount, tokenDecimals);
   const hasEnoughBalance = balance !== undefined && parsedAmount <= balance;
   const hasEnoughStaked =
     stakeInfo !== undefined && parsedAmount <= (stakeInfo as { amount: bigint }).amount;
@@ -62,9 +64,9 @@ export function StakeCard() {
 
   const handleMaxClick = () => {
     if (activeTab === "stake" && balance) {
-      setAmount(formatTokenRaw(balance));
+      setAmount(formatTokenRaw(balance, tokenDecimals));
     } else if (activeTab === "unstake" && stakeInfo) {
-      setAmount(formatTokenRaw((stakeInfo as { amount: bigint }).amount));
+      setAmount(formatTokenRaw((stakeInfo as { amount: bigint }).amount, tokenDecimals));
     }
   };
 
@@ -147,8 +149,8 @@ export function StakeCard() {
             {activeTab === "stake" ? "Balance" : "Staked"}:{" "}
             <span className="text-white">
               {activeTab === "stake"
-                ? formatToken(balance)
-                : formatToken(stakeInfo ? (stakeInfo as { amount: bigint }).amount : undefined)}
+                ? formatToken(balance, tokenDecimals, 6)
+                : formatToken(stakeInfo ? (stakeInfo as { amount: bigint }).amount : undefined, tokenDecimals, 6)}
             </span>{" "}
             XAUT
           </span>
@@ -188,7 +190,7 @@ export function StakeCard() {
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-400">Currently Staked</span>
             <span className="text-white">
-              {formatToken((stakeInfo as { amount: bigint }).amount)} XAUT
+              {formatToken((stakeInfo as { amount: bigint }).amount, tokenDecimals, 6)} XAUT
             </span>
           </div>
         </div>

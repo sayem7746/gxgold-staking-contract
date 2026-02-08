@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { usePendingRewards, useClaimReward, useStakeInfo, useAPY } from "@/hooks/useStaking";
+import { useTokenDecimals } from "@/hooks/useToken";
 import { formatToken, formatTimestamp, calculateEstimatedReward } from "@/lib/utils";
 
 export function RewardsCard() {
@@ -12,6 +13,8 @@ export function RewardsCard() {
   const { data: pendingRewards, refetch: refetchRewards } = usePendingRewards(address);
   const { data: stakeInfo, refetch: refetchStakeInfo } = useStakeInfo(address);
   const { data: apy } = useAPY();
+  const { data: decimals } = useTokenDecimals();
+  const tokenDecimals = decimals ?? 18; // Default to 18 if not loaded yet
 
   const {
     claimReward,
@@ -86,7 +89,7 @@ export function RewardsCard() {
         <p className="mb-1 text-sm text-gray-400">Pending Rewards</p>
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-bold text-gold-400 pulse-gold">
-            {formatToken(displayedReward, 18, 6)}
+            {formatToken(displayedReward, tokenDecimals, 6)}
           </span>
           <span className="text-gray-400">XAUT</span>
         </div>
