@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
 interface AuthContextType {
   isAuthenticated: boolean;
   user: string | null;
@@ -16,32 +18,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const expiryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const clearSession = useCallback(() => {
     localStorage.removeItem("gxgold_user");
     localStorage.removeItem("gxgold_token");
+    localStorage.removeItem("gxgold_last_activity");
     setIsAuthenticated(false);
     setUser(null);
-    if (expiryTimerRef.current) {
-      clearTimeout(expiryTimerRef.current);
-      expiryTimerRef.current = null;
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
     }
   }, []);
 
-  const scheduleAutoLogout = useCallback((expiresAt: number) => {
-    if (expiryTimerRef.current) {
-      clearTimeout(expiryTimerRef.current);
+  // Reset the inactivity timer — called on every user interaction
+  const resetInactivityTimer = useCallback(() => {
+    if (!localStorage.getItem("gxgold_token")) return;
+
+    // Record last activity timestamp
+    localStorage.setItem("gxgold_last_activity", Date.now().toString());
+
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
     }
-    const msUntilExpiry = expiresAt * 1000 - Date.now();
-    if (msUntilExpiry <= 0) {
+    inactivityTimerRef.current = setTimeout(() => {
       clearSession();
-      return;
-    }
-    expiryTimerRef.current = setTimeout(() => {
-      clearSession();
-    }, msUntilExpiry);
+    }, INACTIVITY_TIMEOUT_MS);
   }, [clearSession]);
+
+  // Listen for user activity events to reset inactivity timer
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const activityEvents = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+
+    const handleActivity = () => {
+      resetInactivityTimer();
+    };
+
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, handleActivity, { passive: true });
+    });
+
+    // Start the inactivity timer
+    resetInactivityTimer();
+
+    return () => {
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, handleActivity);
+      });
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = null;
+      }
+    };
+  }, [isAuthenticated, resetInactivityTimer]);
 
   // Verify existing token on mount
   useEffect(() => {
@@ -52,6 +84,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!storedToken || !storedUser) {
         setIsLoading(false);
         return;
+      }
+
+      // Check if user was inactive for too long before page reload
+      const lastActivity = localStorage.getItem("gxgold_last_activity");
+      if (lastActivity) {
+        const elapsed = Date.now() - parseInt(lastActivity, 10);
+        if (elapsed >= INACTIVITY_TIMEOUT_MS) {
+          clearSession();
+          setIsLoading(false);
+          return;
+        }
       }
 
       try {
@@ -65,11 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const data = await res.json();
           setIsAuthenticated(true);
           setUser(data.user);
-          if (data.exp) {
-            scheduleAutoLogout(data.exp);
-          }
         } else {
-          // Token expired or invalid - clear session
           clearSession();
         }
       } catch {
@@ -80,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     verifyToken();
-  }, [clearSession, scheduleAutoLogout]);
+  }, [clearSession]);
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
@@ -98,12 +137,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       localStorage.setItem("gxgold_user", data.user);
       localStorage.setItem("gxgold_token", data.token);
+      localStorage.setItem("gxgold_last_activity", Date.now().toString());
       setIsAuthenticated(true);
       setUser(data.user);
-
-      // Schedule auto-logout when token expires (10 minutes)
-      const expiresAt = Math.floor(Date.now() / 1000) + data.expiresIn;
-      scheduleAutoLogout(expiresAt);
 
       return true;
     } catch {

@@ -30,21 +30,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate JWT token with 10-minute expiration
+    // Generate JWT token with 24-hour expiration
+    // Inactivity-based logout (10 min) is handled on the client side
     const token = await new SignJWT({
       sub: VALID_USERNAME,
       role: "admin",
     })
       .setProtectedHeader({ alg: "HS256" })
       .setIssuedAt()
-      .setExpirationTime("10m")
+      .setExpirationTime("24h")
       .setIssuer("gxgold-staking")
       .sign(JWT_SECRET);
 
     return NextResponse.json({
       token,
       user: VALID_USERNAME,
-      expiresIn: 600, // 10 minutes in seconds
+      expiresIn: 86400, // 24 hours in seconds
     });
   } catch {
     return NextResponse.json(
