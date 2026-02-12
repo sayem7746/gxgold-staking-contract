@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { usePendingRewards, useClaimReward, useStakeInfo, useAPY } from "@/hooks/useStaking";
 import { useTokenDecimals } from "@/hooks/useToken";
-import { formatToken, formatTimestamp, calculateEstimatedReward } from "@/lib/utils";
+import { formatToken, formatTimestamp, calculateEstimatedReward, REWARD_PRECISION, REWARD_PRECISION_DECIMALS } from "@/lib/utils";
 
 export function RewardsCard() {
   const { address, isConnected } = useAccount();
@@ -23,10 +23,10 @@ export function RewardsCard() {
     isSuccess: claimSuccess,
   } = useClaimReward();
 
-  // Sync displayed reward with contract value
+  // Sync displayed reward with contract value (scale up to match precision)
   useEffect(() => {
     if (pendingRewards !== undefined) {
-      setDisplayedReward(pendingRewards);
+      setDisplayedReward(pendingRewards * REWARD_PRECISION);
     }
   }, [pendingRewards]);
 
@@ -89,7 +89,7 @@ export function RewardsCard() {
         <p className="mb-1 text-sm text-gray-400">Pending Rewards</p>
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-bold text-gold-400 pulse-gold">
-            {formatToken(displayedReward, tokenDecimals, 6)}
+            {formatToken(displayedReward, tokenDecimals + REWARD_PRECISION_DECIMALS, 8)}
           </span>
           <span className="text-gray-400">XAUT</span>
         </div>

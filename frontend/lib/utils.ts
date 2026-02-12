@@ -50,6 +50,11 @@ export function formatTimestamp(timestamp: bigint | undefined): string {
   return date.toLocaleString();
 }
 
+// Precision factor of 10^18 used for intermediate APY reward calculations
+// to avoid truncation when computing small per-second increments.
+export const REWARD_PRECISION = BigInt("1000000000000000000"); // 10^18
+export const REWARD_PRECISION_DECIMALS = 18;
+
 export function calculateEstimatedReward(
   stakedAmount: bigint,
   apy: bigint,
@@ -57,5 +62,6 @@ export function calculateEstimatedReward(
 ): bigint {
   if (stakedAmount === BigInt(0) || apy === BigInt(0)) return BigInt(0);
   const secondsPerYear = BigInt(365 * 24 * 60 * 60);
-  return (stakedAmount * apy * BigInt(durationSeconds)) / (BigInt(100) * secondsPerYear);
+  // Result includes 18 extra decimals of precision
+  return (stakedAmount * apy * BigInt(durationSeconds) * REWARD_PRECISION) / (BigInt(100) * secondsPerYear);
 }

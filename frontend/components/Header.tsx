@@ -1,10 +1,10 @@
 "use client";
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useAuth } from "@/app/contexts/AuthContext";
+import { useIsOwner } from "@/hooks/useStaking";
 
 export function Header() {
-  const { user, logout } = useAuth();
+  const isOwner = useIsOwner();
 
   return (
     <header className="border-b border-gray-800 bg-black/50 backdrop-blur-sm">
@@ -22,24 +22,12 @@ export function Header() {
           <div className="flex items-center gap-3">
             <ConnectButton
               showBalance={false}
-              chainStatus="icon"
+              chainStatus={isOwner ? "icon" : "none"}
               accountStatus={{
                 smallScreen: "avatar",
                 largeScreen: "full",
               }}
             />
-            <div className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2">
-              <span className="text-sm text-gray-400">
-                {user}
-              </span>
-              <button
-                onClick={logout}
-                className="rounded-md bg-gray-700 px-2.5 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-red-600/80 hover:text-white"
-                title="Sign out"
-              >
-                Logout
-              </button>
-            </div>
           </div>
         </div>
       </div>

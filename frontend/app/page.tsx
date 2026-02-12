@@ -4,29 +4,12 @@ import { Header } from "@/components/Header";
 import { StakeCard } from "@/components/StakeCard";
 import { RewardsCard } from "@/components/RewardsCard";
 import { StatsCard } from "@/components/StatsCard";
-import { LoginPanel } from "@/components/LoginPanel";
-import { useAuth } from "@/app/contexts/AuthContext";
 import { useAccount } from "wagmi";
 
 export default function Home() {
-  const { isAuthenticated, isLoading } = useAuth();
   const { isConnected } = useAccount();
 
-  // Show loading spinner while checking auth state
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-gold-500 border-t-transparent" />
-      </div>
-    );
-  }
-
-  // Show login panel if not authenticated
-  if (!isAuthenticated) {
-    return <LoginPanel />;
-  }
-
-  // Show main staking dashboard after login
+  // Auth temporarily disabled — show dashboard directly
   return (
     <div className="min-h-screen">
       <Header />

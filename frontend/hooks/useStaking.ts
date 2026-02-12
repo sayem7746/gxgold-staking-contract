@@ -124,6 +124,21 @@ export function useUnstake() {
   };
 }
 
+export function useContractOwner() {
+  const stakingAddress = useStakingAddress();
+  return useReadContract({
+    address: stakingAddress,
+    abi: STAKING_ABI,
+    functionName: "owner",
+  });
+}
+
+export function useIsOwner() {
+  const { address } = useAccount();
+  const { data: ownerAddress } = useContractOwner();
+  return !!address && !!ownerAddress && address.toLowerCase() === (ownerAddress as string).toLowerCase();
+}
+
 export function useClaimReward() {
   const stakingAddress = useStakingAddress();
   const { writeContract, data: hash, isPending, error } = useWriteContract();
